@@ -1,6 +1,5 @@
-# Dummy only. Same idea as the HELLO ping: GitHub already has the file.
-# Actions → Run workflow, or Studio "Create a repository dispatch event"
-# with Event Name: run-math
+# Dummy only. Runs sample-math.py (same as HELLO), then overwrites
+# issue #14 last-math-result so Studio Compose can read the prints.
 
 name: Run sample math
 
@@ -13,6 +12,9 @@ jobs:
   run:
     runs-on: ubuntu-latest
     timeout-minutes: 2
+    permissions:
+      issues: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -20,7 +22,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Run sample-math.py
+      - name: Run sample-math.py and post prints to issue 14
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           echo "----- prints -----"
-          python sample-math.py
+          python sample-math.py > result.txt 2>&1 || true
+          cat result.txt
+          gh issue edit 14 --body-file result.txt
