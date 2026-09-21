@@ -1,6 +1,6 @@
 # Dummy only. Any new issue on this repo is treated as a Python script.
-# Studio Create-an-issue sends the script. This job saves math.py, runs it,
-# and writes ===RESULTS=== back onto the same issue for Studio to read.
+# Studio sends the script in the issue body. This job always runs it first,
+# posts ===RESULTS=== on the issue, then tries to save math.py in the repo.
 
 name: Run math from issue
 
@@ -22,20 +22,39 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Save issue body as math.py
+      - name: Save script, run it, post RESULTS on the issue
         env:
           CODE: ${{ github.event.issue.body }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           python - <<'PY'
-          import os, re, pathlib
+          import os, re, pathlib, subprocess, sys
+          ws = os.environ["GITHUB_WORKSPACE"]
           raw = os.environ.get("CODE") or ""
           match = re.search(r"```(?:python)?\s*([\s\S]*?)```", raw, re.I)
           code = (match.group(1) if match else raw).strip()
-          pathlib.Path("math.py").write_text(code + "\n", encoding="utf-8")
+          math_py = pathlib.Path(ws, "math.py")
+          math_py.write_text(code + "\n", encoding="utf-8")
           print("Wrote math.py, chars:", len(code))
+          proc = subprocess.run(
+              [sys.executable, str(math_py)],
+              cwd=ws,
+              capture_output=True,
+              text=True,
+              timeout=30,
+          )
+          output = (proc.stdout or "") + (proc.stderr or "")
+          pathlib.Path(ws, "result.txt").write_text(output, encoding="utf-8")
+          print("----- output -----")
+          print(output)
+          stripped = re.sub(r"\n===RESULTS===[\s\S]*$", "", raw)
+          body = stripped + "\n\n===RESULTS===\n```\n" + output.strip() + "\n```\n"
+          pathlib.Path(ws, "issue_body.md").write_text(body, encoding="utf-8")
           PY
+          gh issue edit "${{ github.event.issue.number }}" --body-file "$GITHUB_WORKSPACE/issue_body.md"
 
       - name: Commit math.py to the repo
+        continue-on-error: true
         run: |
           git config user.name "studio-dummy"
           git config user.email "studio-dummy@users.noreply.github.com"
@@ -46,27 +65,3 @@ jobs:
             git commit -m "math.py from issue #${{ github.event.issue.number }}"
             git push
           fi
-
-      - name: Run math.py
-        run: |
-          python math.py > result.txt 2>&1 || true
-          cat result.txt
-
-      - name: Write stdout back onto the issue
-        if: always()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            let result = '(no result.txt — python did not produce output)';
-            if (fs.existsSync('result.txt')) {
-              result = fs.readFileSync('result.txt', 'utf8');
-            }
-            const original = context.payload.issue.body || '';
-            const stripped = original.replace(/\n===RESULTS===[\s\S]*$/, '');
-            await github.rest.issues.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: stripped + '\n\n===RESULTS===\n```\n' + result.trim() + '\n```\n',
-            });
