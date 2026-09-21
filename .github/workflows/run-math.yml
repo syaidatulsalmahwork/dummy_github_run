@@ -1,20 +1,18 @@
-# Dummy only. Any new issue on this repo is treated as a Python script.
-# Studio sends the script in the issue body. This job always runs it first,
-# posts ===RESULTS=== on the issue, then tries to save math.py in the repo.
+# Dummy only. Same idea as the HELLO ping: GitHub already has the file.
+# Actions → Run workflow, or Studio "Create a repository dispatch event"
+# with Event Name: run-math
 
-name: Run math from issue
+name: Run sample math
 
 on:
-  issues:
-    types: [opened]
+  workflow_dispatch:
+  repository_dispatch:
+    types: [run-math]
 
 jobs:
-  run-math:
+  run:
     runs-on: ubuntu-latest
     timeout-minutes: 2
-    permissions:
-      issues: write
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -22,46 +20,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Save script, run it, post RESULTS on the issue
-        env:
-          CODE: ${{ github.event.issue.body }}
-          GH_TOKEN: ${{ github.token }}
+      - name: Run sample-math.py
         run: |
-          python - <<'PY'
-          import os, re, pathlib, subprocess, sys
-          ws = os.environ["GITHUB_WORKSPACE"]
-          raw = os.environ.get("CODE") or ""
-          match = re.search(r"```(?:python)?\s*([\s\S]*?)```", raw, re.I)
-          code = (match.group(1) if match else raw).strip()
-          math_py = pathlib.Path(ws, "math.py")
-          math_py.write_text(code + "\n", encoding="utf-8")
-          print("Wrote math.py, chars:", len(code))
-          proc = subprocess.run(
-              [sys.executable, str(math_py)],
-              cwd=ws,
-              capture_output=True,
-              text=True,
-              timeout=30,
-          )
-          output = (proc.stdout or "") + (proc.stderr or "")
-          pathlib.Path(ws, "result.txt").write_text(output, encoding="utf-8")
-          print("----- output -----")
-          print(output)
-          stripped = re.sub(r"\n===RESULTS===[\s\S]*$", "", raw)
-          body = stripped + "\n\n===RESULTS===\n```\n" + output.strip() + "\n```\n"
-          pathlib.Path(ws, "issue_body.md").write_text(body, encoding="utf-8")
-          PY
-          gh issue edit "${{ github.event.issue.number }}" --body-file "$GITHUB_WORKSPACE/issue_body.md"
-
-      - name: Commit math.py to the repo
-        continue-on-error: true
-        run: |
-          git config user.name "studio-dummy"
-          git config user.email "studio-dummy@users.noreply.github.com"
-          git add math.py
-          if git diff --cached --quiet; then
-            echo "math.py unchanged"
-          else
-            git commit -m "math.py from issue #${{ github.event.issue.number }}"
-            git push
-          fi
+          echo "----- prints -----"
+          python sample-math.py
