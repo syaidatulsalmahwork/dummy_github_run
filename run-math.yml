@@ -1,0 +1,63 @@
+# Dummy only. Copy this into a NEW private GitHub repo, not the parser project.
+# Studio writes Python into a GitHub issue titled math-run-*.
+# This workflow runs that Python and writes ===RESULTS=== back onto the same issue.
+
+name: Run math from issue
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  run-math:
+    if: startsWith(github.event.issue.title, 'math-run')
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Extract script from issue and run it
+        env:
+          CODE: ${{ github.event.issue.body }}
+        run: |
+          python - <<'PY'
+          import os, re, pathlib, subprocess, sys
+          raw = os.environ.get("CODE") or ""
+          match = re.search(r"```(?:python)?\s*([\s\S]*?)```", raw, re.I)
+          code = (match.group(1) if match else raw).strip()
+          pathlib.Path("math.py").write_text(code, encoding="utf-8")
+          proc = subprocess.run(
+              [sys.executable, "math.py"],
+              capture_output=True,
+              text=True,
+              timeout=30,
+          )
+          output = (proc.stdout or "") + (proc.stderr or "")
+          pathlib.Path("result.txt").write_text(output, encoding="utf-8")
+          print(output)
+          sys.exit(proc.returncode)
+          PY
+
+      - name: Write stdout back onto the issue
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let result = '(no result.txt — the run step failed before writing output)';
+            if (fs.existsSync('result.txt')) {
+              result = fs.readFileSync('result.txt', 'utf8');
+            }
+            const original = context.payload.issue.body || '';
+            const stripped = original.replace(/\n===RESULTS===[\s\S]*$/, '');
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: stripped + '\n\n===RESULTS===\n```\n' + result.trim() + '\n```\n',
+            });
